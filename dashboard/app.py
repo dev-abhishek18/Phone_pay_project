@@ -3,7 +3,8 @@ import pandas as pd
 import pyodbc
 import plotly.express as px
 import json
-import os
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # FULL SCREEN CONFIG
 st.set_page_config(layout="wide")
@@ -37,19 +38,12 @@ conn = pyodbc.connect(
     "PWD=ISS;"
 )
 
-# FETCH DATA
 df = pd.read_sql("SELECT * FROM aggregated_transaction", conn)
 
-# -------------------------------
-# LOAD GEOJSON (FIXED PATH)
-# -------------------------------
-
-geo_path = os.path.join(os.path.dirname(__file__), "india_state.geojson")
-
-with open(geo_path, "r") as f:
+# LOAD GEOJSON
+with open("dashboard/india_state.geojson", "r") as f:
     india_geo = json.load(f)
 
-# UPPERCASE STATE NAMES
 for f in india_geo["features"]:
     f["properties"]["NAME_1"] = f["properties"]["NAME_1"].upper()
 
@@ -93,22 +87,20 @@ state_fix = {
     "west-bengal": "WEST BENGAL"
 }
 
-# FILTERS
+# ------------------ FILTERS -------------------
 filter_col, map_col = st.columns([1.2, 5])
 
 with filter_col:
-    st.markdown("### 🎛 Filters")
-
     years = sorted(df["year"].unique())
     selected_year = st.selectbox("Select Year", years)
 
     quarters = [1, 2, 3, 4]
     selected_quarter = st.selectbox("Select Quarter", quarters)
 
-# Filter data
+# ------------------ FILTER DATA -------------------
 df_filtered = df[(df["year"] == selected_year) & (df["quarter"] == selected_quarter)]
 
-# KPI CARDS
+# ------------------ KPI CARDS -------------------
 st.markdown("### ⭐ Key Metrics")
 
 k1, k2, k3, k4 = st.columns(4)
@@ -123,7 +115,7 @@ k2.markdown(f"<div class='kpi-card'>Total Amount<br><div class='kpi-value'>₹{t
 k3.markdown(f"<div class='kpi-card'>Avg Txn Value<br><div class='kpi-value'>₹{avg_val:,.0f}</div></div>", unsafe_allow_html=True)
 k4.markdown(f"<div class='kpi-card'>States Covered<br><div class='kpi-value'>{states}</div></div>", unsafe_allow_html=True)
 
-# MAP SUMMARY DATA
+# ------------------ MAP DATA -------------------
 df_summary = df_filtered.groupby("region").agg(
     total_txn=("count", "sum"),
     total_amount=("amount", "sum")
@@ -132,7 +124,7 @@ df_summary = df_filtered.groupby("region").agg(
 df_summary["avg_txn_value"] = df_summary["total_amount"] / df_summary["total_txn"]
 df_summary["region_map"] = df_summary["region"].str.lower().map(state_fix)
 
-# INDIA MAP
+# ------------------ INDIA MAP -------------------
 st.markdown(f"### 🗺️ India Map — Year {selected_year}, Q{selected_quarter}")
 
 fig_map = px.choropleth(
@@ -151,7 +143,7 @@ fig_map.update_layout(height=650, margin=dict(l=0, r=0, t=0, b=0))
 
 st.plotly_chart(fig_map, use_container_width=True)
 
-# BAR CHART
+# ------------------ YEARLY TREND -------------------
 st.markdown("### 📊 Yearly Trend by State")
 
 state_list = ["ALL INDIA"] + sorted(df["region"].unique())
@@ -168,3 +160,44 @@ fig_bar = px.bar(
 )
 
 st.plotly_chart(fig_bar, use_container_width=True)
+
+# ------------------ EDA SECTION -------------------
+st.markdown("## 🧪 Exploratory Data Analysis (EDA)")
+st.write("Explore distribution, category analysis, and correlations in the dataset.")
+
+eda_tab1, eda_tab2, eda_tab3, eda_tab4 = st.tabs([
+    "Amount Distribution",
+    "Transaction Count Distribution",
+    "Category-wise Analysis",
+    "Correlation Heatmap"
+])
+
+# 1 — Amount Distribution
+with eda_tab1:
+    st.subheader("📦 Distribution of Transaction Amount")
+    fig = px.histogram(df, x="amount", nbins=50, color_discrete_sequence=["#6A5ACD"])
+    st.plotly_chart(fig, use_container_width=True)
+
+# 2 — Transaction Count Distribution
+with eda_tab2:
+    st.subheader("📊 Distribution of Transaction Count")
+    fig = px.histogram(df, x="count", nbins=50, color_discrete_sequence=["#20B2AA"])
+    st.plotly_chart(fig, use_container_width=True)
+
+# 3 — Category-wise Analysis
+with eda_tab3:
+    st.subheader("🏷️ Category-wise Transaction Amount")
+    df_cat = df.groupby("category")["amount"].sum().reset_index()
+    fig = px.bar(
+        df_cat, x="category", y="amount", text_auto=True,
+        color="category", color_discrete_sequence=px.colors.qualitative.Set2
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# 4 — Correlation Heatmap
+with eda_tab4:
+    st.subheader("🔥 Correlation Heatmap")
+    corr = df[["count", "amount", "year", "quarter"]].corr()
+    fig, ax = plt.subplots()
+    sns.heatmap(corr, annot=True, cmap="Purples", ax=ax)
+    st.pyplot(fig)
